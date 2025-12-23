@@ -44,24 +44,28 @@ class FluxKontextImageCompensate:
             "required": {
                 "image": ("IMAGE",), 
                 "k_factor": ("FLOAT", {"default": 1.0521, "min": 1.0, "max": 2.0, "step": 0.0001}),
-                "padding_mode": (["Mirror", "Replicate", "Solid Color"], {"default": "Mirror"}),
+                "comp_mode": (["Mirror", "Replicate", "Solid Color"], {"default": "Solid Color"}),
                 "solid_color": ("STRING", {"default": "#FFFFFF"}),
             }
         }
 
-    RETURN_TYPES = ("IMAGE", "INT", "INT", "COMPENSATION_DATA")
-    RETURN_NAMES = ("IMAGE", "width", "height", "data")
+    RETURN_TYPES = ("IMAGE", "COMPENSATION_DATA", "INT", "INT")
+    RETURN_NAMES = ("IMAGE", "comp_data", "width", "height")
     FUNCTION = "compensate"
-    CATEGORY = "FluxKontext"
+    CATEGORY = "CCNotes/FluxKontext"
 
-    def compensate(self, image, k_factor, padding_mode, solid_color="#FFFFFF"):
+    def compensate(self, image, k_factor, comp_mode, solid_color="#FFFFFF"):
         # image shape: [B, H, W, C]
         img = image.permute(0, 3, 1, 2)  # [B, C, H, W]
-        old_h, old_w = img.shape[2], img.shape[3]
+        # Map nice names to internal pyTorch modes
+        mode_map = {
+            "Mirror": "reflect",
+            "Replicate": "replicate", 
+            "Solid Color": "constant"
+        }
+        pt_pad_mode = mode_map.get(comp_mode, "reflect")
         
-        # padding mode map (User Name -> PyTorch Mode)
-        pad_mode_map = {"Mirror": "reflect", "Replicate": "replicate", "Solid Color": "constant"}
-        pt_pad_mode = pad_mode_map.get(padding_mode, "reflect")
+        old_h, old_w = img.shape[2], img.shape[3]
         
         # Expand canvas Y
         new_h = int(round(old_h * k_factor / 16)) * 16
@@ -77,7 +81,7 @@ class FluxKontextImageCompensate:
         
         # Pad (left, right, top, bottom)
         try:
-            if padding_mode == "Solid Color":
+            if comp_mode == "Solid Color":
                 # Manual padding for constant color
                 r, g, b, a = parse_color(solid_color) # returns ints 0-255
                 b_sz, c, _, _ = img.shape
@@ -99,10 +103,7 @@ class FluxKontextImageCompensate:
         except: 
             img_out = F.pad(img, (pad_left, pad_right, pad_top, pad_bottom), mode='constant', value=1.0)
         
-        actual_k_h = new_h / old_h if old_h > 0 else 1.0
-        actual_k_w = new_w / old_w if old_w > 0 else 1.0
-        
-        data = {
+        comp_data = {
             "orig_h": old_h, 
             "orig_w": old_w, 
             "new_h": new_h,
@@ -115,7 +116,7 @@ class FluxKontextImageCompensate:
         print(f"FluxKontextCompensate: {old_w}x{old_h} -> {new_w}x{new_h} (X+{pad_total_x}, Y+{pad_total_y})")
         
         output_image = img_out.permute(0, 2, 3, 1)
-        return (output_image, data, new_w, new_h)
+        return (output_image, comp_data, new_w, new_h)
 
 
 class FluxKontextImageRestore:
@@ -134,17 +135,17 @@ class FluxKontextImageRestore:
         return {
             "required": {
                 "image": ("IMAGE",), 
-                "data": ("COMPENSATION_DATA",),
             },
             "optional": {
                 "reference_image": ("IMAGE",),
+                "comp_data": ("COMPENSATION_DATA",),
             }
         }
 
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("IMAGE",)
     FUNCTION = "restore"
-    CATEGORY = "FluxKontext"
+    CATEGORY = "CCNotes/FluxKontext"
 
     def align_image(self, main_img_np, ref_img_np):
         """
@@ -198,10 +199,16 @@ class FluxKontextImageRestore:
         print(f"FluxKontext AutoAlign: Scale={best_scale:.4f}, OffsetY={best_y}px, OffsetX={best_x}px, Score={best_score:.4f}")
         return best_scale, best_y, best_x
 
-    def restore(self, image, data, reference_image=None):
+    def restore(self, image, comp_data=None, reference_image=None):
         # image shape: [B, H, W, C]
         img = image.permute(0, 3, 1, 2)
-        orig_h, orig_w = data["orig_h"], data["orig_w"]
+        
+        # Handle missing comp_data
+        if comp_data is None:
+            print("FluxKontext Restore: No comp_data provided, returning original image")
+            return (image,)
+            
+        orig_h, orig_w = comp_data["orig_h"], comp_data["orig_w"]
         
         # Default Params
         final_scale_y = orig_h / img.shape[2] 
@@ -235,8 +242,8 @@ class FluxKontextImageRestore:
             # --- MATH FALLBACK ---
             
             # Y Axis (Crop-to-Fit Simulation)
-            new_h = data.get("new_h", img.shape[2])
-            pad_total_y = data.get("pad_top", 0) + data.get("pad_bottom", 0)
+            new_h = comp_data.get("new_h", img.shape[2])
+            pad_total_y = comp_data.get("pad_top", 0) + comp_data.get("pad_bottom", 0)
             
             if new_h < 1: new_h = 1 
             squeeze_s_y = orig_h / new_h
@@ -246,7 +253,7 @@ class FluxKontextImageRestore:
             if crop_h_squeezed > 0:
                 zoom_f_y = orig_h / crop_h_squeezed
                 final_scale_y = squeeze_s_y * zoom_f_y 
-                final_offset_y = data.get("pad_top", 0) * final_scale_y
+                final_offset_y = comp_data.get("pad_top", 0) * final_scale_y
             else:
                  final_scale_y = orig_h / img.shape[2]
                  final_offset_y = 0
@@ -259,8 +266,8 @@ class FluxKontextImageRestore:
                 final_offset_x = 0
             else:
                 final_scale_x = 1.0
-                # Use pad_left from data if valid, else center crop
-                final_offset_x = data.get("pad_left", (img.shape[3] - orig_w) // 2)
+                # Use pad_left from comp_data if valid, else center crop
+                final_offset_x = comp_data.get("pad_left", (img.shape[3] - orig_w) // 2)
 
         # --- APPLICATOR ---
         # 1. Resize Main Image
