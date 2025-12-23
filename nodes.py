@@ -42,9 +42,11 @@ class FluxKontextImageCompensate:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "image": ("IMAGE",), 
+                "image": ("IMAGE",),
                 "k_factor": ("FLOAT", {"default": 1.0521, "min": 1.0, "max": 2.0, "step": 0.0001}),
                 "comp_mode": (["Mirror", "Replicate", "Solid Color"], {"default": "Solid Color"}),
+            },
+            "optional": {
                 "solid_color": ("STRING", {"default": "#FFFFFF"}),
             }
         }

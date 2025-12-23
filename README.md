@@ -46,4 +46,4 @@ Restores the generated image back to its original spatial composition using the 
 Clone this repository into your `ComfyUI/custom_nodes/` directory:
 
 ```bash
-git clone https://github.com/yourname/ComfyUI-FluxKontextImageCompensation.git
+git clone https://github.com/Ginolazy/ComfyUI-FluxKontextImageCompensation.git
