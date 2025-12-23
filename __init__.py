@@ -6,8 +6,8 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "FluxKontextImageCompensate": "Flux Kontext Compensate",
-    "FluxKontextImageRestore": "Flux Kontext Restore",
+    "FluxKontextImageCompensate": "FluxKontextImageCompensate",
+    "FluxKontextImageRestore": "FluxKontextImageRestore",
 }
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
