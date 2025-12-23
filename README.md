@@ -1,4 +1,4 @@
-# ComfyUI-FluxKontextImageCompensation
+# ComfyUI-FluxKontextImageCompensate
 
 A focused ComfyUI plugin for restoring spatial consistency when working with the Flux Kontext model during image expansion and outpainting.
 
